@@ -1,0 +1,21 @@
+# Chrome profile and session data (contains Google login tokens)
+chrome_profile/
+chrome_profile/*
+
+# Local SQLite databases (contains private user journals, facts, reflections)
+*.db
+*.db-journal
+companion_data.db
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Environment & logs
+.env
+*.log
+
+# PyInstaller build artifacts
+dist/
+build/
+*.spec
