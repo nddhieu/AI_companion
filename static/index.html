@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Omni — Stateful AI Life Companion (V2.0)</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="style.css">
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -61,6 +61,12 @@
         <button class="btn-toggle-incognito" id="btnIncognitoToggle" title="Toggle Private Incognito Mode (No memory saved)">
           <span id="incognitoIcon">🧠</span>
           <span id="incognitoText">Memory: Active</span>
+        </button>
+
+        <!-- Engine Settings Button -->
+        <button class="btn-secondary btn-engine-settings" id="btnOpenEngineSettings" title="Configure AI Engine (Gemini Web CDP vs Gemini API BYOK)">
+          <span id="engineBadgeIcon">⚡</span>
+          <span id="engineBadgeText">Gemini API</span>
         </button>
 
         <div class="date-badge" id="currentDateBadge">📅 Today</div>
@@ -535,9 +541,71 @@
     </div>
   </div>
 
+  <!-- MODAL: ENGINE & CLOUD SETTINGS -->
+  <div class="modal-overlay" id="engineSettingsModal">
+    <div class="modal-card modal-large">
+      <div class="modal-header">
+        <h2>⚙️ AI Engine & Cloud Authentication</h2>
+        <button class="modal-close" id="closeEngineSettingsModal">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="host-status-banner" id="hostStatusBanner">
+          <span class="host-dot"></span>
+          <span id="hostStatusText">Detecting environment...</span>
+        </div>
+
+        <div class="setting-group-title">Choose AI Backend Engine:</div>
+
+        <div class="engine-options-grid">
+          <label class="engine-card" id="cardEngineWeb">
+            <input type="radio" name="aiEngineRadio" value="gemini_web">
+            <div class="engine-card-content">
+              <div class="engine-card-header">
+                <span class="engine-icon">🌐</span>
+                <strong>Gemini Web (Chrome CDP)</strong>
+                <span class="engine-tag" id="tagEngineWeb">Localhost Only</span>
+              </div>
+              <p>Connects to your genuine Google Chrome session on port 9222 with zero bot-detection risk. Requires local Chrome on this PC.</p>
+            </div>
+          </label>
+
+          <label class="engine-card active" id="cardEngineApi">
+            <input type="radio" name="aiEngineRadio" value="gemini_api" checked>
+            <div class="engine-card-content">
+              <div class="engine-card-header">
+                <span class="engine-icon">⚡</span>
+                <strong>Gemini API (Cloud / BYOK)</strong>
+                <span class="engine-tag tag-recommended">Cloud Recommended</span>
+              </div>
+              <p>Direct HTTPS connection to Google Gemini API (gemini-2.5-flash). Works for public visitors on any laptop or phone without local Chrome.</p>
+            </div>
+          </label>
+        </div>
+
+        <div class="api-key-section" id="apiKeySection">
+          <label class="form-label" for="geminiApiKeyInput">
+            <span>Google Gemini API Key (BYOK)</span>
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="api-key-help-link">Get Free Key at Google AI Studio ↗</a>
+          </label>
+          <div class="api-key-input-wrapper">
+            <input type="password" id="geminiApiKeyInput" placeholder="AIzaSy..." autocomplete="off">
+            <button type="button" class="btn-toggle-key-visibility" id="btnToggleKeyVisibility" title="Show/Hide Key">👁️</button>
+            <button type="button" class="btn-secondary" id="btnValidateKey">Test Key</button>
+          </div>
+          <div class="key-validation-feedback" id="keyValidationFeedback"></div>
+          <p class="key-privacy-hint">🔒 Your API key is stored locally in your browser's private storage (localStorage) and never logged.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btnCancelEngineSettings">Cancel</button>
+        <button class="btn-primary" id="btnSaveEngineSettings">Save Engine Settings</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Tool Notification Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <script src="/static/app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

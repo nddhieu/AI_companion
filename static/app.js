@@ -13,6 +13,12 @@ class LifeCompanionApp {
     this.speechRecognition = null;
     this.sidebarCollapsed = localStorage.getItem("omni_sidebar_collapsed") === "true";
 
+    // AI Engine & Host Environment Detection
+    this.isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+    const savedEngine = localStorage.getItem("omni_ai_engine");
+    this.aiEngine = savedEngine || (this.isLocal ? "gemini_web" : "gemini_api");
+    this.geminiApiKey = localStorage.getItem("omni_gemini_api_key") || "";
+
     // Configure Markdown Parser
     if (typeof marked !== "undefined") {
       marked.setOptions({
@@ -23,6 +29,7 @@ class LifeCompanionApp {
 
     this.initElements();
     this.applySidebarState();
+    this.updateEngineBadgeUI();
     this.initEvents();
     this.initVoiceRecognition();
     this.initWebSocket();
@@ -174,10 +181,60 @@ class LifeCompanionApp {
     this.closeCrisisModal = document.getElementById("closeCrisisModal");
     this.btnDismissCrisis = document.getElementById("btnDismissCrisis");
 
+    // Modals: AI Engine & Cloud Settings
+    this.btnOpenEngineSettings = document.getElementById("btnOpenEngineSettings");
+    this.engineSettingsModal = document.getElementById("engineSettingsModal");
+    this.closeEngineSettingsModal = document.getElementById("closeEngineSettingsModal");
+    this.btnCancelEngineSettings = document.getElementById("btnCancelEngineSettings");
+    this.btnSaveEngineSettings = document.getElementById("btnSaveEngineSettings");
+    this.hostStatusText = document.getElementById("hostStatusText");
+    this.hostStatusBanner = document.getElementById("hostStatusBanner");
+    this.cardEngineWeb = document.getElementById("cardEngineWeb");
+    this.cardEngineApi = document.getElementById("cardEngineApi");
+    this.tagEngineWeb = document.getElementById("tagEngineWeb");
+    this.radioEngineWeb = document.querySelector('input[name="aiEngineRadio"][value="gemini_web"]');
+    this.radioEngineApi = document.querySelector('input[name="aiEngineRadio"][value="gemini_api"]');
+    this.apiKeySection = document.getElementById("apiKeySection");
+    this.geminiApiKeyInput = document.getElementById("geminiApiKeyInput");
+    this.btnToggleKeyVisibility = document.getElementById("btnToggleKeyVisibility");
+    this.btnValidateKey = document.getElementById("btnValidateKey");
+    this.keyValidationFeedback = document.getElementById("keyValidationFeedback");
+    this.engineBadgeIcon = document.getElementById("engineBadgeIcon");
+    this.engineBadgeText = document.getElementById("engineBadgeText");
+
     this.toastContainer = document.getElementById("toastContainer");
   }
 
   initEvents() {
+    // Engine & Cloud Settings Events
+    if (this.btnOpenEngineSettings) {
+      this.btnOpenEngineSettings.addEventListener("click", () => this.openEngineSettingsModal());
+    }
+    if (this.closeEngineSettingsModal) {
+      this.closeEngineSettingsModal.addEventListener("click", () => this.closeModal(this.engineSettingsModal));
+    }
+    if (this.btnCancelEngineSettings) {
+      this.btnCancelEngineSettings.addEventListener("click", () => this.closeModal(this.engineSettingsModal));
+    }
+    if (this.btnSaveEngineSettings) {
+      this.btnSaveEngineSettings.addEventListener("click", () => this.handleSaveEngineSettings());
+    }
+    if (this.btnValidateKey) {
+      this.btnValidateKey.addEventListener("click", () => this.handleValidateApiKey());
+    }
+    if (this.btnToggleKeyVisibility) {
+      this.btnToggleKeyVisibility.addEventListener("click", () => {
+        const isPwd = this.geminiApiKeyInput.type === "password";
+        this.geminiApiKeyInput.type = isPwd ? "text" : "password";
+        this.btnToggleKeyVisibility.textContent = isPwd ? "🙈" : "👁️";
+      });
+    }
+    document.querySelectorAll('input[name="aiEngineRadio"]').forEach(r => {
+      r.addEventListener("change", (e) => {
+        document.querySelectorAll(".engine-card").forEach(c => c.classList.remove("active"));
+        e.target.closest(".engine-card")?.classList.add("active");
+      });
+    });
     // Profile Dropdown
     this.btnProfileDropdown.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -944,6 +1001,12 @@ class LifeCompanionApp {
     const text = (overrideText !== null ? overrideText : this.promptInput.value).trim();
     if (!text || this.isGenerating) return;
 
+    if (this.aiEngine === "gemini_api" && !this.geminiApiKey) {
+      this.openEngineSettingsModal();
+      this.showToast("Please enter your free Gemini API key to chat.", "info");
+      return;
+    }
+
     if (!hideUserBubble && !this.isGreetingTrigger(text)) {
       this.addUserMessageBubble(text);
     }
@@ -956,7 +1019,9 @@ class LifeCompanionApp {
       this.socket.send(JSON.stringify({
         text: text,
         user_id: this.currentUserId,
-        incognito: this.incognito
+        incognito: this.incognito,
+        engine: this.aiEngine,
+        api_key: this.geminiApiKey
       }));
     } else {
       this.showToast("Chat connection is offline. Reconnecting...", "error");
@@ -1564,7 +1629,121 @@ class LifeCompanionApp {
     }
   }
 
+  updateEngineBadgeUI() {
+    if (!this.engineBadgeText) return;
+    if (this.aiEngine === "gemini_web") {
+      this.engineBadgeIcon.textContent = "🌐";
+      this.engineBadgeText.textContent = "Gemini Web (CDP)";
+      if (this.btnConnect) this.btnConnect.style.display = "inline-flex";
+    } else {
+      this.engineBadgeIcon.textContent = "⚡";
+      this.engineBadgeText.textContent = this.geminiApiKey ? "Gemini API (Ready)" : "Gemini API (Set Key)";
+      if (this.btnConnect) this.btnConnect.style.display = "none";
+    }
+  }
+
+  openEngineSettingsModal() {
+    if (this.isLocal) {
+      if (this.hostStatusBanner) this.hostStatusBanner.className = "host-status-banner host-local";
+      if (this.hostStatusText) this.hostStatusText.textContent = "📍 Localhost detected (127.0.0.1) — Gemini Web (Chrome CDP) & Gemini API available.";
+      if (this.radioEngineWeb) this.radioEngineWeb.disabled = false;
+      if (this.cardEngineWeb) this.cardEngineWeb.classList.remove("disabled");
+      if (this.tagEngineWeb) this.tagEngineWeb.textContent = "Localhost Ready";
+    } else {
+      if (this.hostStatusBanner) this.hostStatusBanner.className = "host-status-banner host-cloud";
+      if (this.hostStatusText) this.hostStatusText.textContent = "📍 Cloud Public Domain detected — Gemini API (BYOK) enabled for remote visitors.";
+      if (this.radioEngineWeb) this.radioEngineWeb.disabled = true;
+      if (this.cardEngineWeb) this.cardEngineWeb.classList.add("disabled");
+      if (this.tagEngineWeb) this.tagEngineWeb.textContent = "Localhost Only";
+    }
+
+    if (this.aiEngine === "gemini_web" && this.isLocal) {
+      if (this.radioEngineWeb) this.radioEngineWeb.checked = true;
+      this.cardEngineWeb?.classList.add("active");
+      this.cardEngineApi?.classList.remove("active");
+    } else {
+      if (this.radioEngineApi) this.radioEngineApi.checked = true;
+      this.cardEngineApi?.classList.add("active");
+      this.cardEngineWeb?.classList.remove("active");
+    }
+
+    if (this.geminiApiKeyInput) this.geminiApiKeyInput.value = this.geminiApiKey || "";
+    if (this.keyValidationFeedback) {
+      this.keyValidationFeedback.textContent = "";
+      this.keyValidationFeedback.className = "key-validation-feedback";
+    }
+    this.openModal(this.engineSettingsModal);
+  }
+
+  async handleValidateApiKey() {
+    const key = this.geminiApiKeyInput.value.trim();
+    if (!key) {
+      this.keyValidationFeedback.textContent = "Please enter an API key to test.";
+      this.keyValidationFeedback.className = "key-validation-feedback error";
+      return;
+    }
+
+    this.btnValidateKey.disabled = true;
+    this.btnValidateKey.textContent = "Testing...";
+    this.keyValidationFeedback.textContent = "Validating with Google Gemini API...";
+    this.keyValidationFeedback.className = "key-validation-feedback info";
+
+    try {
+      const res = await fetch("/api/settings/validate-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: key })
+      });
+      const data = await res.json();
+      if (data.valid) {
+        this.keyValidationFeedback.textContent = "✅ API Key Valid! Connected to Google Gemini.";
+        this.keyValidationFeedback.className = "key-validation-feedback success";
+      } else {
+        this.keyValidationFeedback.textContent = `❌ ${data.message || "Invalid API key"}`;
+        this.keyValidationFeedback.className = "key-validation-feedback error";
+      }
+    } catch (e) {
+      this.keyValidationFeedback.textContent = "Validation request failed.";
+      this.keyValidationFeedback.className = "key-validation-feedback error";
+    } finally {
+      this.btnValidateKey.disabled = false;
+      this.btnValidateKey.textContent = "Test Key";
+    }
+  }
+
+  handleSaveEngineSettings() {
+    const selectedRadio = document.querySelector('input[name="aiEngineRadio"]:checked');
+    const chosenEngine = selectedRadio ? selectedRadio.value : "gemini_api";
+    const apiKey = this.geminiApiKeyInput.value.trim();
+
+    if (chosenEngine === "gemini_api" && !apiKey) {
+      if (!confirm("No API key entered. You won't be able to chat in Gemini API mode until an API key is saved. Proceed anyway?")) {
+        return;
+      }
+    }
+
+    this.aiEngine = chosenEngine;
+    this.geminiApiKey = apiKey;
+    localStorage.setItem("omni_ai_engine", this.aiEngine);
+    localStorage.setItem("omni_gemini_api_key", this.geminiApiKey);
+
+    this.updateEngineBadgeUI();
+    this.closeModal(this.engineSettingsModal);
+    this.showToast(`AI Engine set to: ${chosenEngine === "gemini_web" ? "Gemini Web (CDP)" : "Gemini API (BYOK)"}`, "success");
+  }
+
   async checkBridgeStatus() {
+    if (this.aiEngine === "gemini_api") {
+      if (this.geminiApiKey) {
+        this.statusDot.className = "status-dot connected";
+        this.statusText.textContent = "Gemini API Ready";
+      } else {
+        this.statusDot.className = "status-dot waiting";
+        this.statusText.textContent = "Set API Key (⚙️)";
+      }
+      return;
+    }
+
     try {
       const res = await fetch(`/api/status?user_id=${this.currentUserId}`);
       const data = await res.json();
@@ -1607,3 +1786,4 @@ class LifeCompanionApp {
 document.addEventListener("DOMContentLoaded", () => {
   window.app = new LifeCompanionApp();
 });
+

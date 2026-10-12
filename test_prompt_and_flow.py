@@ -32,18 +32,26 @@ class TestMasterPromptAndFlow(unittest.TestCase):
         res4 = memory_engine.generate_local_response("default_user", "Coach me on how to organize these three tasks.")
         self.assertIn("Core Priority", res4)
 
-    def test_markdown_table_structure_preservation(self):
-        # Verify markdown table formatting rules
-        sample_table = (
-            "| Priority | Area | Status | Key Deliverables / Next Actions |\n"
-            "| --- | --- | --- | --- |\n"
-            "| High | 3 Core STAR Stories | Pending Drill | Lock down 3 specific stories: 1) Outage debugging |\n"
-            "| High | \"Tell Me About Yourself\" | Pending Polish | Deliver concise narrative |"
-        )
-        lines = sample_table.strip().split("\n")
-        self.assertEqual(len(lines), 4)
-        self.assertTrue(lines[0].startswith("| Priority"))
-        self.assertTrue(lines[1].startswith("| ---"))
+    def test_yesterday_diary_synthesis(self):
+        # User asks: "base on what you know , write a diary how was my day yesterday"
+        res = memory_engine.generate_local_response("default_user", "base on what you know , write a diary how was my day yesterday")
+        self.assertIn("Daily Journal Entry", res)
+        self.assertTrue("Toyota" in res or "interview" in res)
+        self.assertTrue("calm" in res.lower() or "medium" in res.lower() or "today i took time" in res.lower())
+        self.assertNotIn("I'm with you. Tell me what's on your mind today—whether you want to run through practice", res)
+
+    def test_identity_and_yesterday_recap(self):
+        # Identity query
+        res_id = memory_engine.generate_local_response("default_user", "what do you know about me")
+        self.assertIn("Hieu Nguyen", res_id)
+        self.assertIn("Technical Lead", res_id)
+        self.assertIn("Toyota", res_id)
+
+        # Yesterday recap
+        res_recap = memory_engine.generate_local_response("default_user", "what did we do yesterday")
+        self.assertIn("Toyota Production System", res_recap)
+        self.assertIn("STAR Behavioral Stories", res_recap)
 
 if __name__ == "__main__":
     unittest.main()
+

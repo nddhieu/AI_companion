@@ -5,8 +5,9 @@ import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 
 from auth_manager import DEFAULT_USER_ID, verify_pin_or_password, hash_pin_or_password
@@ -17,8 +18,18 @@ from tools_engine import tools_gateway
 from wisdom_catalog import get_all_wisdom_lessons, find_matching_wisdom
 from safety_engine import safety_engine
 from mcp_server import mcp_server
+from gemini_api_engine import gemini_api_engine
 
 app = FastAPI(title="Omni — AI Life Companion (V2.0)", version="2.0.0")
+
+# Enable CORS for published Cloudflare Tunnel & cross-origin Web GUIs
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 if getattr(sys, 'frozen', False):
     if hasattr(sys, '_MEIPASS'):
@@ -108,6 +119,9 @@ class ForgetMeRequest(BaseModel):
     user_id: Optional[str] = DEFAULT_USER_ID
     target_term: str
 
+class ValidateKeyRequest(BaseModel):
+    api_key: str
+
 class JsonRpcRequest(BaseModel):
     jsonrpc: str = "2.0"
     id: Optional[Any] = None
@@ -122,6 +136,20 @@ async def root():
     if index_file.exists():
         return HTMLResponse(content=index_file.read_text(encoding="utf-8"))
     return HTMLResponse(content="<h1>Omni AI Life Companion Server Active</h1>")
+
+@app.get("/style.css")
+async def get_style_css():
+    file_path = STATIC_DIR / "style.css"
+    if file_path.exists():
+        return FileResponse(str(file_path), media_type="text/css")
+    raise HTTPException(status_code=404, detail="style.css not found")
+
+@app.get("/app.js")
+async def get_app_js():
+    file_path = STATIC_DIR / "app.js"
+    if file_path.exists():
+        return FileResponse(str(file_path), media_type="application/javascript")
+    raise HTTPException(status_code=404, detail="app.js not found")
 
 # ---------------- USER AUTH & PROFILES ---------------- #
 
@@ -172,8 +200,15 @@ async def get_status(user_id: str = DEFAULT_USER_ID):
         "bridge": bridge_status,
         "workspace": today_workspace,
         "active_user": user,
-        "date": datetime.date.today().strftime("%A, %B %d, %Y")
+        "date": datetime.date.today().strftime("%A, %B %d, %Y"),
+        "cdp_available": is_cdp_running(),
+        "has_server_gemini_key": bool(os.environ.get("GEMINI_API_KEY", "").strip())
     }
+
+@app.post("/api/settings/validate-key")
+async def validate_api_key(req: ValidateKeyRequest):
+    result = await gemini_api_engine.validate_api_key(req.api_key)
+    return result
 
 @app.post("/api/connect")
 async def connect_chrome():
@@ -366,15 +401,33 @@ async def auto_create_gem():
     return res
 
 @app.post("/api/synthesize/reflection-card")
-async def synthesize_card(user_id: str = DEFAULT_USER_ID):
+async def synthesize_card(
+    user_id: str = DEFAULT_USER_ID,
+    engine: str = Query("auto"),
+    api_key: Optional[str] = Query(None)
+):
     today_str = datetime.date.today().isoformat()
-    card_data = await companion_bridge.synthesize_reflection_card(user_id=user_id, chat_summary="")
+    card_data = await companion_bridge.synthesize_reflection_card(
+        user_id=user_id,
+        chat_summary="",
+        engine=engine,
+        api_key=api_key
+    )
     card_data["date"] = today_str
     return {"status": "success", "card": card_data}
 
 @app.post("/api/synthesize/diary-draft")
-async def synthesize_diary(user_id: str = DEFAULT_USER_ID):
-    draft = await companion_bridge.synthesize_diary_draft(user_id=user_id, chat_summary="")
+async def synthesize_diary(
+    user_id: str = DEFAULT_USER_ID,
+    engine: str = Query("auto"),
+    api_key: Optional[str] = Query(None)
+):
+    draft = await companion_bridge.synthesize_diary_draft(
+        user_id=user_id,
+        chat_summary="",
+        engine=engine,
+        api_key=api_key
+    )
     return {"status": "success", "diary_draft": draft}
 
 # ---------------- WEBSOCKET STREAMING ---------------- #
@@ -392,6 +445,8 @@ async def websocket_chat(websocket: WebSocket):
             mode = payload.get("mode", "Adaptive")
             user_id = payload.get("user_id", DEFAULT_USER_ID)
             incognito = payload.get("incognito", False)
+            engine = payload.get("engine", "auto")
+            api_key = payload.get("api_key", None)
 
             if not user_text:
                 continue
@@ -413,9 +468,15 @@ async def websocket_chat(websocket: WebSocket):
             if not incognito:
                 storage.save_chat_message(user_id, today_str, "user", user_text, mode)
 
-            # 3. Stream from Gemini with Recall Enforcement Gate & Adaptive Intelligence
+            # 3. Stream from Gemini (API or Chrome CDP) with Recall Enforcement Gate & Adaptive Intelligence
             full_reply = ""
-            async for chunk in companion_bridge.send_prompt_stream(user_text, user_id=user_id):
+            async for chunk in companion_bridge.send_prompt_stream(
+                user_text,
+                mode=mode,
+                user_id=user_id,
+                engine=engine,
+                api_key=api_key
+            ):
                 await websocket.send_json(chunk)
                 if chunk.get("status") in ["streaming", "done"]:
                     full_reply = chunk.get("full_text", full_reply)

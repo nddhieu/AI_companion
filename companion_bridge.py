@@ -15,6 +15,7 @@ from auth_manager import DEFAULT_USER_ID
 from memory_engine import memory_engine
 from tools_engine import tools_gateway
 from subagents import subagent_dispatcher
+from gemini_api_engine import gemini_api_engine
 
 CDP_PORT = 9222
 CDP_URL = f"http://127.0.0.1:{CDP_PORT}"
@@ -247,12 +248,25 @@ class LifeCompanionBridge:
             self.active_user_id = user_id
             return {"status": "success", "message": "Fresh session initialized."}
 
-    async def send_prompt_stream(self, user_text: str, mode: Optional[str] = None, user_id: str = DEFAULT_USER_ID) -> AsyncGenerator[Dict[str, Any], None]:
+    async def send_prompt_stream(
+        self,
+        user_text: str,
+        mode: Optional[str] = None,
+        user_id: str = DEFAULT_USER_ID,
+        engine: str = "auto",
+        api_key: Optional[str] = None
+    ) -> AsyncGenerator[Dict[str, Any], None]:
         """
-        Sends user prompt to Gemini in Chrome with Recall Enforcement Gate,
+        Sends user prompt to Gemini (via Gemini API BYOK or Chrome CDP) with Recall Enforcement Gate,
         Knowledge Graph context, and MCP tool execution loops.
-        Reuses the active chat session during the same day, starting a clean chat only on a new day.
         """
+        # Route to Direct Gemini API if explicitly requested or if an API key is provided and CDP is not running
+        use_api = (engine == "gemini_api") or (api_key and (engine == "auto" or not is_cdp_running()))
+        if use_api:
+            async for chunk in gemini_api_engine.send_prompt_stream(user_text=user_text, user_id=user_id, api_key=api_key):
+                yield chunk
+            return
+
         today_str = datetime.date.today().isoformat()
         is_first_turn_of_day = (
             not self.session_initialized or 
@@ -742,7 +756,13 @@ class LifeCompanionBridge:
                 "message": f"Successfully configured Gem '{gem_name}' in Gemini!"
             }
 
-    async def synthesize_reflection_card(self, user_id: str = DEFAULT_USER_ID, chat_summary: str = "") -> Dict[str, Any]:
+    async def synthesize_reflection_card(
+        self,
+        user_id: str = DEFAULT_USER_ID,
+        chat_summary: str = "",
+        engine: str = "auto",
+        api_key: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Synthesizes structured Reflection Card JSON from recent chat history."""
         prompt = (
             "Based on our conversation above, please synthesize a structured Reflection Card. "
@@ -760,7 +780,7 @@ class LifeCompanionBridge:
         )
         
         full_text = ""
-        async for chunk in self.send_prompt_stream(prompt, user_id=user_id):
+        async for chunk in self.send_prompt_stream(prompt, user_id=user_id, engine=engine, api_key=api_key):
             if chunk.get("status") in ["streaming", "done"]:
                 full_text = chunk.get("full_text", "")
 
@@ -783,7 +803,13 @@ class LifeCompanionBridge:
                 "what_i_want_to_remember": "I showed up to reflect and care for myself."
             }
 
-    async def synthesize_diary_draft(self, user_id: str = DEFAULT_USER_ID, chat_summary: str = "") -> str:
+    async def synthesize_diary_draft(
+        self,
+        user_id: str = DEFAULT_USER_ID,
+        chat_summary: str = "",
+        engine: str = "auto",
+        api_key: Optional[str] = None
+    ) -> str:
         """Synthesizes a first-person authentic diary entry from conversation history."""
         prompt = (
             "Please write an authentic, first-person diary entry (2-3 paragraphs) "
@@ -791,9 +817,10 @@ class LifeCompanionBridge:
             "Write in my voice, using 'I'."
         )
         full_text = ""
-        async for chunk in self.send_prompt_stream(prompt, user_id=user_id):
+        async for chunk in self.send_prompt_stream(prompt, user_id=user_id, engine=engine, api_key=api_key):
             if chunk.get("status") in ["streaming", "done"]:
                 full_text = chunk.get("full_text", "")
         return full_text
 
 companion_bridge = LifeCompanionBridge()
+
